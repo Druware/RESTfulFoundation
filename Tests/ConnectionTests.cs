@@ -13,7 +13,7 @@ namespace RESTfulFoundation.Tests
         [Test]
         public void TestUrlBuilder()
         {
-            string RootPath = "http://www.trustee13.com/";
+            string RootPath = "https://www.trustee13.com/";
             string Path = "/api/controller/";
             long Id = 12;
 
@@ -23,15 +23,13 @@ namespace RESTfulFoundation.Tests
 
             Assert.That(result.Equals("http://www.trustee13.com/api/controller/12/"),
                 Is.True, "Resulting String does not match expected result");
-
-            Assert.Pass();
         }
 
         [Test]
         public void TestList()
         {
-            string RootPath = "https://api.publicapis.org/";
-            string Path = "/entries/";
+            string RootPath = "http://localhost/";
+            string Path = "/api/trustee/array";
 
             RESTConnection connection = new(RootPath);
 
@@ -40,8 +38,6 @@ namespace RESTfulFoundation.Tests
 
             Assert.That(result?.List, Is.Not.EqualTo(null), "Result does not contain a list");
             Assert.That(result?.List!.Count, Is.GreaterThan(0), "List does not have any records");
-
-            Assert.Pass();
 
             return;
         }
@@ -62,7 +58,6 @@ namespace RESTfulFoundation.Tests
                 Assert.That(connection.Info!, Is.Not.Empty, "Info does not have any records");
                 Assert.That(connection.Info![0], Is.EqualTo("An Exception was raised: Response status code does not indicate success: 404 (Not Found)."), "Unexpected Error Message was returned");
             });
-            Assert.Pass();
 
             return;
         }
@@ -80,8 +75,6 @@ namespace RESTfulFoundation.Tests
 
             Assert.That(result?.List, Is.Not.EqualTo(null), "Result does not contain a list");
             Assert.That(result?.List!.Count, Is.GreaterThan(0), "List does not have any records");
-
-            Assert.Pass();
 
             return;
         }

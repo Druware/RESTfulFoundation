@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -9,25 +10,6 @@ using System.Text.Json.Serialization;
 
 namespace RESTfulFoundation
 {
-    public class ArrayOrObjectJsonConverter<T> : JsonConverter<IReadOnlyCollection<T>>
-    {
-        public override IReadOnlyCollection<T>? Read(
-            ref Utf8JsonReader reader,
-            Type typeToConvert,
-            JsonSerializerOptions options)
-            => reader.TokenType switch
-            {
-                JsonTokenType.StartArray => JsonSerializer.Deserialize<T[]>(ref reader, options),
-                JsonTokenType.StartObject => JsonSerializer.Deserialize<Wrapper>(ref reader, options)?.Items,
-                _ => throw new JsonException()
-            };
-
-        public override void Write(Utf8JsonWriter writer, IReadOnlyCollection<T> value, JsonSerializerOptions options)
-            => JsonSerializer.Serialize(writer, (object?)value, options);
-
-        private record Wrapper(T[] Items);
-    }
-
 
     /// <summary>
     /// The 
@@ -80,17 +62,6 @@ namespace RESTfulFoundation
             return result;
         }
 
-
-
-
-        public RESTObjectList<T>? List<T>(string path,
-            long? page = null, int? perPage = null)
-            where T : RESTObject
-        {
-            var task = Task.Run(async () => await ListAsync<T>(path, page, perPage));
-            return task.Result;
-        }
-
         /// <summary>
         /// The List method is essentially a 'get' request with no parameters
         /// that expects the service to rerturn an array of objects that can be
@@ -108,7 +79,32 @@ namespace RESTfulFoundation
         /// <param name="page"></param>
         /// <param name="perPage"></param>
         /// <returns></returns>
-        public async Task<RESTObjectList<T>?> ListAsync<T> (
+        public RESTObjectList<T>? List<T>(string path,
+            long? page = null, int? perPage = null)
+            where T : RESTObject
+        {
+            var task = Task.Run(async () => await ListAsync<T>(path, page, perPage));
+            return task.Result;
+        }
+
+        /// <summary>
+        /// The ListAsyn method is essentially a 'get' request with no required
+        /// parameters that expects the service to rerturn an array of objects
+        /// that can be used to navigate into the tree.
+        ///
+        /// NOTE:
+        ///     If the call fails, it will return null, and populate the Info
+        ///     property that will list any and all conditions that failed in
+        ///     processing.
+        /// </summary>
+        /// <typeparam name="T">A scoped result that is derived from the RESTObject
+        ///     class</typeparam>
+        /// <param name="path">the portion of the URL that follows the RootPath
+        ///     on the connection</param>
+        /// <param name="page"></param>
+        /// <param name="perPage"></param>
+        /// <returns></returns>
+        public async Task<RESTObjectList<T>?> ListAsync<T>(
             string path, long? page = null, int? perPage = null) where T : RESTObject
         {
             if (Info != null) Info = null;
@@ -125,19 +121,28 @@ namespace RESTfulFoundation
                     return null;
                 }
 
-                // first we try this as an api object with a list, then we try as
-                // an array..
+                StreamReader reader = new StreamReader(await streamTask);
+                string content = await reader.ReadToEndAsync();
 
-                var options = new JsonSerializerOptions();
-                options.Converters.Add(new ArrayOrObjectJsonConverter<T>());
+                RESTObjectList<T>? result = null;
 
-                IReadOnlyCollection<T>? list = await
-                    JsonSerializer.DeserializeAsync<IReadOnlyCollection<T>>(await streamTask);
+                // is this an object, or an array?
+                if (content.StartsWith("["))
+                {
+                    // this is an array
+                    List<T>? array = JsonSerializer.Deserialize<List<T>>(content);
+                    if (array == null)
+                    {
+                        Info = new();
+                        Info.Add("Unable to process a list from the result");
+                        return null;
+                    }
+                    result = new RESTObjectList<T>(array!);
+                    return result;
+                }
 
-
-                RESTObjectList<T>? result = new RESTObjectList<T>(list!);
-                //    await JsonSerializer.DeserializeAsync<RESTObjectList<T>>(await streamTask);
-
+                result = JsonSerializer.Deserialize<RESTObjectList<T>>(content);
+                // 
 
                 if (result == null)
                 {
@@ -154,273 +159,265 @@ namespace RESTfulFoundation
                 return null;
             }
         }
-        /*
-                /// <summary>
-                /// The foundational Get request.
-                /// </summary>
-                /// <typeparam name="T"></typeparam>
-                /// <param name="path"></param>
-                /// <param name="id"></param>
-                /// <param name="completion"></param>
-                /// <param name="failure"></param>
-                /// <returns></returns>
-                public async Task<T?> Get<T>(
-                    string path,
-                    string id,
-                    Action<T?>? completion = null,
-                    Action<string?>? failure = null) where T : RESTObject?
+
+        /// <summary>
+        /// The Query method is internally a post to a /query/ path on the
+        /// api.  It takes a model of the request object with the values to
+        /// search set on it, and then returns a list of objects that match the
+        /// passed in criteria.  Wildcards should be supported in the passed in
+        /// criteria, however this is *server* dependant.
+        ///
+        /// NOTE:
+        ///     If the call fails, it will return null, and populate the Info
+        ///     property that will list any and all conditions that failed in
+        ///     processing.
+        /// </summary>
+        /// <typeparam name="T">A scoped result that is derived from the RESTObject
+        ///     class</typeparam>
+        /// <param name="path">the portion of the URL that follows the RootPath
+        ///     on the connection</param>
+        /// <param name="page"></param>
+        /// <param name="perPage"></param>
+        /// <returns></returns>
+        public RESTObjectList<T>? Query<T>(
+            string path,
+            T criteria,
+            long page = 0,
+            long perPage = 0) where T : RESTObject
+        {
+            var task = Task.Run(async () => await QueryAsync<T>(path, criteria, page, perPage));
+            return task.Result;
+        }
+
+        /// <summary>
+        /// The QueryAsync method is internally a post to a /query/ path on the
+        /// api.  It takes a model of the request object with the values to
+        /// search set on it, and then returns a list of objects that match the
+        /// passed in criteria.  Wildcards should be supported in the passed in
+        /// criteria, however this is *server* dependant.
+        ///
+        /// NOTE:
+        ///     If the call fails, it will return null, and populate the Info
+        ///     property that will list any and all conditions that failed in
+        ///     processing.
+        /// </summary>
+        /// <typeparam name="T">A scoped result that is derived from the RESTObject
+        ///     class</typeparam>
+        /// <param name="path">the portion of the URL that follows the RootPath
+        ///     on the connection</param>
+        /// <param name="page"></param>
+        /// <param name="perPage"></param>
+        /// <returns></returns>
+        public async Task<RESTObjectList<T>?> QueryAsync<T>(
+            string path,
+            T criteria,
+            long page = 0,
+            long perPage = 0) where T : RESTObject
+        {
+            try
+            {
+                string url = BuildUrlString(path, "/query/");
+
+                // serialize the model to send in the body
+                string modelData = JsonSerializer.Serialize(criteria);
+
+                var buffer = System.Text.Encoding.UTF8.GetBytes(modelData);
+                var byteContent = new ByteArrayContent(buffer);
+                byteContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+
+                HttpResponseMessage response = await httpClient.PostAsync(url, byteContent);
+                response.EnsureSuccessStatusCode();
+                RESTObjectList<T>? result = await JsonSerializer.DeserializeAsync<RESTObjectList<T>>(await response.Content.ReadAsStreamAsync());
+                if (result == null)
                 {
-                    try
-                    {
-                        string url =
-                            Base +
-                        path +
-                            ((path.EndsWith("/") ? "" : "/") +
-                            ((id != null) ? id.Trim() : ""));
-
-                        var streamTask = httpClient.GetStreamAsync(url);
-                        if (streamTask is null) { return null; }
-                        T? result = await JsonSerializer.DeserializeAsync<T?>(await streamTask);
-                        if (result == null)
-                        {
-                            if (failure != null)
-                            {
-                                failure("No Object Returned");
-                                return null;
-                            }
-                        }
-
-                        if (completion != null)
-                        {
-                            completion(result);
-                            return result;
-                        }
-                        return result;
-                    }
-                    catch (Exception error)
-                    {
-                        if (failure != null)
-                        {
-                            failure(error.Message);
-                            return null;
-                        }
-                    }
+                    Info = new();
+                    Info.Add("No List Returned");
                     return null;
                 }
 
-                public async Task<APIList<T>> List<T>(
-                    string path,
-                    Action<APIList<T>?>? completion = null,
-                    Action<string?>? failure = null) where T : APIObject
+                return result!;
+            }
+            catch (Exception error)
+            {
+                Info = new();
+                Info.Add(string.Format("An Exception was raised: {0}", error.Message));
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The foundational Get request.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="path"></param>
+        /// <param name="id"></param>
+        /// <returns></returns>
+        public T? Get<T>(
+            string path,
+            string? id = null) where T : RESTObject?
+        {
+            var task = Task.Run(async () => await GetAsync<T>(path, id));
+            return task.Result;
+        }
+
+        /// <summary>
+        /// The foundational GetAsync request.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="path"></param>
+        /// <param name="id"></param>
+        /// <returns></returns>
+        public async Task<T?> GetAsync<T>(
+            string path,
+            string? id = null) where T : RESTObject?
+        {
+            if (Info != null) Info = null;
+
+            try
+            {
+                string url = BuildUrlString(path, id ?? "");
+
+                var streamTask = httpClient.GetStreamAsync(url);
+
+                if (streamTask is null)
                 {
-                    try
-                    {
-                        string url =
-                        Base +
-                        path +
-                        ((path.EndsWith("/") ? "" : "/"));
-
-                        var streamTask = httpClient.GetStreamAsync(url);
-                        if (streamTask is null) { return new APIList<T>(); }
-                        APIList<T>? result = await JsonSerializer.DeserializeAsync<APIList<T>>(await streamTask);
-                        if (result == null)
-                        {
-                            if (failure != null)
-                            {
-                                failure("No Object Returned");
-                                return new APIList<T>(); ;
-                            }
-                        }
-
-                        if (completion != null)
-                        {
-                            completion(result!);
-                            return result!;
-                        }
-                        return result!;
-                    }
-                    catch (Exception error)
-                    {
-                        if (failure != null)
-                        {
-                            failure(error.Message);
-                            return new APIList<T>(); ;
-                        }
-                    }
-                    return new APIList<T>(); ;
-                }
-
-                public async Task<APIList<T>?> Query<T>(
-                string path,
-                    T criteria,
-                    long page = 0,
-                    long perPage = 0,
-                    Action<APIList<T>?>? completion = null,
-                    Action<string?>? failure = null) where T : APIObject
-                {
-                    try
-                    {
-                        string url =
-                            Base +
-                            path +
-                            ((path.EndsWith("/") ? "query/" : "/query/"));
-
-                        // serialize the model to send in the body
-                        string modelData = JsonSerializer.Serialize(criteria);
-
-                        var buffer = System.Text.Encoding.UTF8.GetBytes(modelData);
-                        var byteContent = new ByteArrayContent(buffer);
-                        byteContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-
-                        HttpResponseMessage response = await httpClient.PostAsync(url, byteContent);
-                        response.EnsureSuccessStatusCode();
-                        APIList<T>? result = await JsonSerializer.DeserializeAsync<APIList<T>>(await response.Content.ReadAsStreamAsync());
-                        if (result == null)
-                        {
-                            if (failure != null)
-                                failure("No Object Returned");
-                            return new();
-                        }
-
-                        if (completion != null)
-                            completion(result!);
-                        return result!;
-                    }
-                    catch (Exception error)
-                    {
-                        if (failure != null)
-                            failure(error.Message);
-                        return new();
-                    }
-                }
-
-                public async Task<T?> Post<T, U>(
-                    string path,
-                    U model,
-                    Action<T?>? completion = null,
-                    Action<string?>? failure = null) where T : APIObject? where U : APIObject?
-                {
-                    try
-                    {
-                        string url = Base + path;
-
-                        // serialize the model to send in the body
-                        string modelData = JsonSerializer.Serialize(model);
-
-                        var buffer = System.Text.Encoding.UTF8.GetBytes(modelData);
-                        var byteContent = new ByteArrayContent(buffer);
-                        byteContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-
-                        HttpResponseMessage response = await httpClient.PostAsync(url, byteContent);
-                        response.EnsureSuccessStatusCode();
-                        T? result = await JsonSerializer.DeserializeAsync<T?>(await response.Content.ReadAsStreamAsync());
-                        if (result == null)
-                        {
-                            if (failure != null)
-                            {
-                                failure("No Object Returned");
-                                return null;
-                            }
-                        }
-
-                        if (completion != null)
-                        {
-                            completion(result);
-                            return result;
-                        }
-                        return result;
-                    }
-                    catch (Exception error)
-                    {
-                        if (failure != null)
-                        {
-                            failure(error.Message);
-                            return null;
-                        }
-                    }
+                    Info = new();
+                    Info.Add("Unable to obtain a valid stream");
                     return null;
                 }
 
-                public async Task<T?> Put<T, U>(
-                    string path,
-                    string id,
-                    U model,
-                    Action<T?>? completion = null,
-                    Action<string?>? failure = null) where T : APIObject? where U : APIObject?
+                T? result = await JsonSerializer.DeserializeAsync<T?>(await streamTask);
+                if (result == null)
                 {
-                    try
-                    {
-                        string url = Base + path + ((path.EndsWith("/") ? "" : "/") + id);
-
-                        // serialize the model to send in the body
-                        string modelData = JsonSerializer.Serialize(model);
-
-                        var buffer = System.Text.Encoding.UTF8.GetBytes(modelData);
-                        var byteContent = new ByteArrayContent(buffer);
-                        byteContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-
-                        HttpResponseMessage response = await httpClient.PutAsync(url, byteContent);
-                        response.EnsureSuccessStatusCode();
-                        T? result = await JsonSerializer.DeserializeAsync<T?>(await response.Content.ReadAsStreamAsync());
-                        if (result == null)
-                        {
-                            if (failure != null)
-                            {
-                                failure("No Object Returned");
-                                return null;
-                            }
-                        }
-
-                        if (completion != null)
-                        {
-                            completion(result);
-                            return result;
-                        }
-                        return result;
-                    }
-                    catch (Exception error)
-                    {
-                        if (failure != null)
-                        {
-                            failure(error.Message);
-                            return null;
-                        }
-                    }
+                    Info = new();
+                    Info.Add("No Object Returned");
                     return null;
                 }
 
-                public async Task<Boolean> Delete(
-                    string path,
-                    string id,
-                    Action<Boolean>? completion = null,
-                    Action<string?>? failure = null)
+                return result;
+            }
+            catch (Exception error)
+            {
+                Info = new();
+                Info.Add(string.Format("An Exception was raised: {0}", error.Message));
+                return null;
+            }
+        }
+
+        public T? Postc<T, U>(
+            string path,
+            U model) where T : RESTObject? where U : RESTObject?
+        {
+            var task = Task.Run(async () => await PostAsync<T, U>(path, model));
+            return task.Result;
+        }
+
+        public async Task<T?> PostAsync<T, U>(
+            string path,
+            U model) where T : RESTObject? where U : RESTObject?
+        {
+            try
+            {
+                string url = BuildUrlString(path);
+
+                // serialize the model to send in the body
+                string modelData = JsonSerializer.Serialize(model);
+
+                var buffer = System.Text.Encoding.UTF8.GetBytes(modelData);
+                var byteContent = new ByteArrayContent(buffer);
+                byteContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+
+                HttpResponseMessage response = await httpClient.PostAsync(url, byteContent);
+                response.EnsureSuccessStatusCode();
+                T? result = await JsonSerializer.DeserializeAsync<T?>(await response.Content.ReadAsStreamAsync());
+                if (result == null)
                 {
-                    try
-                    {
-                        string url = Base + path + ((path.EndsWith("/") ? "" : "/") + id);
-
-                        HttpResponseMessage response = await httpClient.DeleteAsync(url);
-                        if (response.StatusCode == HttpStatusCode.OK)
-                        {
-                            if (completion != null)
-                                completion(true);
-                            return true;
-                        }
-
-                        if (failure != null)
-                            failure("Request Returned an error: " + response.StatusCode.ToString());
-                        return false;
-                    }
-                    catch (Exception error)
-                    {
-                        if (failure != null)
-                        {
-                            failure(error.Message);
-                            return false;
-                        }
-                    }
-                    return false;
+                    Info = new();
+                    Info.Add("No Object Returned");
+                    return null;
                 }
-                */
+
+                return result;
+            }
+            catch (Exception error)
+            {
+                Info = new();
+                Info.Add(string.Format("An Exception was raised: {0}", error.Message));
+                return null;
+            }
+        }
+        public T? Put<T, U>(
+            string path,
+            string id,
+            U model) where T : RESTObject? where U : RESTObject?
+        {
+            var task = Task.Run(async () => await PutAsync<T, U>(path, id, model));
+            return task.Result;
+        }
+
+        public async Task<T?> PutAsync<T, U>(
+            string path,
+            string id,
+            U model) where T : RESTObject? where U : RESTObject?
+        {
+            try
+            {
+                string url = BuildUrlString(path, id ?? "");
+
+                // serialize the model to send in the body
+                string modelData = JsonSerializer.Serialize(model);
+
+                var buffer = System.Text.Encoding.UTF8.GetBytes(modelData);
+                var byteContent = new ByteArrayContent(buffer);
+                byteContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+
+                HttpResponseMessage response = await httpClient.PutAsync(url, byteContent);
+                response.EnsureSuccessStatusCode();
+                T? result = await JsonSerializer.DeserializeAsync<T?>(await response.Content.ReadAsStreamAsync());
+                if (result == null)
+                {
+                    Info = new();
+                    Info.Add("No Object Returned");
+                    return null;
+                }
+
+                return result;
+            }
+            catch (Exception error)
+            {
+                Info = new();
+                Info.Add(string.Format("An Exception was raised: {0}", error.Message));
+                return null;
+            }
+        }
+
+
+               
+
+        public Boolean Delete(
+            string path,
+            string id)
+        {
+            var task = Task.Run(async () => await DeleteAsync(path, id));
+            return task.Result;
+        }
+
+        public async Task<Boolean> DeleteAsync(
+            string path,
+            string id)
+        {
+            try
+            {
+                string url = BuildUrlString(path, id ?? "");
+                HttpResponseMessage response = await httpClient.DeleteAsync(url);
+                return (response.StatusCode == HttpStatusCode.OK);
+            }
+            catch (Exception error)
+            {
+                Info = new();
+                Info.Add(string.Format("An Exception was raised: {0}", error.Message));
+                return false;
+            }
+        }
     }
 }

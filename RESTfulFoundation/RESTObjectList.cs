@@ -15,12 +15,10 @@ namespace RESTfulFoundation
     {
         public RESTObjectList() { }
 
-        public RESTObjectList(IReadOnlyCollection<T> items)
+        public RESTObjectList(IList<T> items)
         {
-            List = new List<T>();
-            foreach (T item in items)
-                List.Add(item);
-            TotalRecords = List.Count;
+            List = (List<T>?)items;
+            TotalRecords = List!.Count;
         }
 
         [JsonPropertyName("totalRecords")]
