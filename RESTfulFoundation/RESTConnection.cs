@@ -88,7 +88,7 @@ namespace RESTfulFoundation
         }
 
         /// <summary>
-        /// The ListAsyn method is essentially a 'get' request with no required
+        /// The ListAsyns method is essentially a 'get' request with no required
         /// parameters that expects the service to rerturn an array of objects
         /// that can be used to navigate into the tree.
         ///
@@ -390,9 +390,6 @@ namespace RESTfulFoundation
                 return null;
             }
         }
-
-
-               
 
         public Boolean Delete(
             string path,
