@@ -3,6 +3,15 @@ using System.Text.Json.Serialization;
 
 namespace RESTfulFoundation
 {
+    public class RESTResult : RESTObject
+    {
+        [JsonPropertyName("succeeded")]
+        public bool? Succeeded { get; set; }
+
+        [JsonPropertyName("info")]
+        public string[]? Info { get; set; }
+    }
+
     /// <summary>
     /// Class RESTObjectList implements a pageable ( optionally ) implementation
     /// of a result list. By default, .NET implements a robust IList<> generic
@@ -11,7 +20,7 @@ namespace RESTfulFoundation
     /// be a top level object result containing an array rather than an array
     /// found as a child of another object.
     /// </summary>
-    public class RESTObjectList<T> : RESTObject where T : RESTObject
+    public class RESTObjectList<T> : RESTResult where T : RESTObject
     {
         public RESTObjectList() { }
 

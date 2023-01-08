@@ -304,17 +304,17 @@ namespace RESTfulFoundation
             }
         }
 
-        public T? Postc<T, U>(
+        public T? Post<T>(
             string path,
-            U model) where T : RESTObject? where U : RESTObject?
+            T model) where T : RESTObject? 
         {
-            var task = Task.Run(async () => await PostAsync<T, U>(path, model));
+            var task = Task.Run(async () => await PostAsync<T>(path, model));
             return task.Result;
         }
 
-        public async Task<T?> PostAsync<T, U>(
+        public async Task<T?> PostAsync<T>(
             string path,
-            U model) where T : RESTObject? where U : RESTObject?
+            T model) where T : RESTObject?
         {
             try
             {
@@ -346,19 +346,19 @@ namespace RESTfulFoundation
                 return null;
             }
         }
-        public T? Put<T, U>(
+        public T? Put<T>(
             string path,
             string id,
-            U model) where T : RESTObject? where U : RESTObject?
+            T model) where T : RESTObject? 
         {
-            var task = Task.Run(async () => await PutAsync<T, U>(path, id, model));
+            var task = Task.Run(async () => await PutAsync<T>(path, id, model));
             return task.Result;
         }
 
-        public async Task<T?> PutAsync<T, U>(
+        public async Task<T?> PutAsync<T>(
             string path,
             string id,
-            U model) where T : RESTObject? where U : RESTObject?
+            T model) where T : RESTObject?
         {
             try
             {
