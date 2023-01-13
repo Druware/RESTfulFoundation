@@ -79,12 +79,92 @@ namespace RESTfulFoundation
         /// <param name="page"></param>
         /// <param name="perPage"></param>
         /// <returns></returns>
+        public T[]? List<T>(string path)
+            where T : RESTObject
+        {
+            var task = Task.Run(async () => await ListAsync<T>(path));
+            return task.Result;
+        }
+
+        /// <summary>
+        /// The List method is essentially a 'get' request with no parameters
+        /// that expects the service to rerturn an array of objects that can be
+        /// used to navigate into the tree.
+        ///
+        /// NOTE:
+        ///     If the call fails, it will return null, and populate the Info
+        ///     property that will list any and all conditions that failed in
+        ///     processing.
+        /// </summary>
+        /// <typeparam name="T">A scoped result that is derived from the RESTObject
+        ///     class</typeparam>
+        /// <param name="path">the portion of the URL that follows the RootPath
+        ///     on the connection</param>
+        /// <param name="page"></param>
+        /// <param name="perPage"></param>
+        /// <returns></returns>
         public RESTObjectList<T>? List<T>(string path,
             long? page = null, int? perPage = null)
             where T : RESTObject
         {
             var task = Task.Run(async () => await ListAsync<T>(path, page, perPage));
             return task.Result;
+        }
+
+        /// <summary>
+        /// The ListAsyns method is essentially a 'get' request with no required
+        /// parameters that expects the service to rerturn an array of objects
+        /// that can be used to navigate into the tree.
+        ///
+        /// NOTE:
+        ///     If the call fails, it will return null, and populate the Info
+        ///     property that will list any and all conditions that failed in
+        ///     processing.
+        /// </summary>
+        /// <typeparam name="T">A scoped result that is derived from the RESTObject
+        ///     class</typeparam>
+        /// <param name="path">the portion of the URL that follows the RootPath
+        ///     on the connection</param>
+        /// <param name="page"></param>
+        /// <param name="perPage"></param>
+        /// <returns></returns>
+        public async Task<T[]?> ListAsync<T>(
+            string path) where T : RESTObject
+        {
+            if (Info != null) Info = null;
+
+            try
+            {
+                string url = BuildUrlString(path);
+
+                var streamTask = httpClient.GetStreamAsync(url);
+
+                if (streamTask is null)
+                {
+                    Info = new();
+                    Info.Add("Unable to obtain a valid stream");
+                    return null;
+                }
+
+                StreamReader reader = new StreamReader(await streamTask);
+                string content = await reader.ReadToEndAsync();
+
+                // this is an array
+                List<T>? array = JsonSerializer.Deserialize<List<T>>(content);
+                if (array == null)
+                {
+                    Info = new();
+                    Info.Add("Unable to process a list from the result");
+                    return null;
+                }
+                return array?.ToArray();
+            }
+            catch (Exception error)
+            {
+                Info = new();
+                Info.Add(string.Format("An Exception was raised: {0}", error.Message));
+                return null;
+            }
         }
 
         /// <summary>
