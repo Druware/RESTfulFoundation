@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package >
+  <metadata>
+    <id>$id$</id>
+    <version>0.0.5</version>
+    <title>RESTfulFoundation</title>
+    <authors>dru@druware.com</authors>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <license type="file">LICENSE.txt</license>
+    <readme>README.md</readme>
+    <!-- <icon>icon.png</icon> -->
+    <projectUrl>https://github.com/Druware/RESTfulFoundation</projectUrl>
+    <description>
+        A set of foundation classes for quickly and easily building RESTful
+        client applications and tools. Intended to be used primarily as base
+        classes that provide a bridge from local logic to the server storage
+        environment, the long term intent is to use these to build a light
+        scaffolding tool that quickly builds the interfaces based upon this
+        foundation, to enable rapid development of RESTful client applications.        
+    </description>
+    <releaseNotes>
+        Initial migration from out of an internal library and into something
+        usable by external developers and tools.  
+    </releaseNotes>
+    <copyright>Copyright 2022, 2023 Druware Software Designs, All Rights Reserved</copyright>
+    <tags>.net6 webapi</tags>
+  </metadata>
+  <files>
+    <file src=".\LICENSE.txt" target="" />
+    <file src=".\README.md" target="" />
+  </files>
+</package>
