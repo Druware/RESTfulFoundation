@@ -1,11 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using RESTfulFoundation.UnitTest.Server;
 using RESTfulFoundation.UnitTest.Server.Entities;
 using RESTfulFoundation.Server;
 
@@ -16,12 +10,8 @@ namespace RESTfulFoundation.UnitTest.Server.Controllers
     public class PlayersController : ControllerBase
     {
         private readonly EFContext _context;
-
-        public PlayersController(EFContext context)
-        {
-            _context = context;
-        }
-
+        public PlayersController(EFContext context) => _context = context;
+        
         // GET: api/Players
         [HttpGet]
         public async Task<IActionResult> GetPlayers(
@@ -35,7 +25,7 @@ namespace RESTfulFoundation.UnitTest.Server.Controllers
                     .Skip((int)(page! * perPage!))
                     .Take((int)perPage!)
                     .ToListAsync(),
-                    (await _context.Players.ToListAsync()).Count(),
+                    (await _context.Players.ToListAsync()).Count,
                     page, perPage));
             }
 

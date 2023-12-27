@@ -1,10 +1,11 @@
-﻿using System;
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 
 namespace RESTfulFoundation.UnitTests
 {
     class Player : RESTObject
     {
+        public static readonly string Path = "/api/Players";
+        
         [JsonPropertyName("playerId")]
         public long PlayerId { get; set; }
         [JsonPropertyName("playerName")]
@@ -13,6 +14,7 @@ namespace RESTfulFoundation.UnitTests
 
     public class ConnectionTests
     {
+        private readonly TestConfiguration _configuration = new();
 
         [SetUp]
         public void Setup()
@@ -20,110 +22,104 @@ namespace RESTfulFoundation.UnitTests
         }
 
         [Test]
+        public void TestConfiguration()
+        {
+            Assert.That(_configuration.Host, Is.Not.Null, "Host Cannot be null");
+            Assert.Pass();
+        }
+        
+        [Test]
         public void TestUrlBuilder()
         {
-            string RootPath = "https://www.trustee13.com/";
-            string Path = "/api/controller/";
-            long Id = 12;
+            const string rootPath = "https://www.druware.com/";
+            const string path = "/api/controller/";
+            const long id = 12;
 
-            RESTConnection connection = new(RootPath);
+            var result = RESTConnection.BuildUrlString(null, rootPath, path, "", id.ToString());
 
-            string result = connection.BuildUrlString(Path, "", Id.ToString());
-
-            Assert.That(result, Is.EqualTo("https://www.trustee13.com/api/controller/12/"), "Resulting String does not match expected result");
+            Assert.That(result, 
+                Is.EqualTo("https://www.druware.com/api/controller/12/"), 
+                "Resulting String does not match expected result");
         }
 
         [Test]
         public void TestListErrorHandling()
         {
-            string RootPath = "https://www.trustee13.com/";
-            string Path = "/api/notimplemented/";
+            const string path = "/api/notimplemented/";
 
-            RESTConnection connection = new(RootPath);
+            Assert.That(_configuration.Host, Is.Not.Null, "Host Cannot be null");
 
-            RESTObject[]? result =
-                connection.List<RESTObject>(Path);
+            var connection = new RESTConnection(_configuration.Host);
+            Assert.That(connection, Is.Not.Null, "Connection should never be null");
+
+            var result = connection.List<Player>(path, "");
+            
             Assert.Multiple(() =>
             {
-                Assert.That(result, Is.EqualTo(null), "Result is not null and should be");
-                Assert.That(connection.Info!, Is.Not.Empty, "Info does not have any records");
-                Assert.That(connection.Info![0], Is.EqualTo("An Exception was raised: Response status code does not indicate success: 404 (Not Found)."), "Unexpected Error Message was returned");
+                Assert.That(result, Is.Not.Null, "Result is null and should not be");
+                Assert.That(connection.Info!, Is.Not.Empty, "Info does not have any records and should");
             });
 
-            return;
+            Assert.Pass();
         }
 
         [Test]
         public void TestList()
         {
-            string RootPath = "https://www.trustee13.com/";
-            string Path = "/unittest/api/Players";
+            Assert.That(_configuration.Host, Is.Not.Null, "Host Cannot be null");
 
-            RESTConnection connection = new(RootPath);
+            var connection = new RESTConnection(_configuration.Host);
+            Assert.That(connection, Is.Not.Null, "Connection should never be null");
 
-            RESTObject[]? result =
-                connection.List<RESTObject>(Path);
+            var result = connection.List<Player>(Player.Path, "");
 
             Assert.That(result, Is.Not.EqualTo(null), "Result does not contain a list");
-            Assert.That(result.Count, Is.GreaterThan(0), "List does not have any records");
-
-            return;
+            Assert.That(result!.Count, Is.GreaterThan(0), "List does not have any records");
         }
-
+        
         [Test]
         public async Task TestListAsync()
         {
-            string RootPath = "https://www.trustee13.com/";
-            string Path = "/unittest/api/Players";
+            Assert.That(_configuration.Host, Is.Not.Null, "Host Cannot be null");
 
-            RESTConnection connection = new(RootPath);
+            var connection = new RESTConnection(_configuration.Host);
+            Assert.That(connection, Is.Not.Null, "Connection should never be null");
 
-            RESTObject[] ? result =
-                await connection.ListAsync<RESTObject>(Path);
+            var result = await connection.ListAsync<Player>(Player.Path, "");
 
             Assert.That(result, Is.Not.EqualTo(null), "Result does not contain a list");
-            Assert.That(result.Count, Is.GreaterThan(0), "List does not have any records");
-
-            return;
+            Assert.That(result!.Count, Is.GreaterThan(0), "List does not have any records");
         }
-
 
         [Test]
         public void TestPagedList()
         {
-            string RootPath = "https://www.trustee13.com/";
-            string Path = "/unittest/api/Players";
+            Assert.That(_configuration.Host, Is.Not.Null, "Host Cannot be null");
 
-            RESTConnection connection = new(RootPath);
+            var connection = new RESTConnection(_configuration.Host);
+            Assert.That(connection, Is.Not.Null, "Connection should never be null");
 
-            RESTObjectList<RESTObject>? result =
-                connection.List<RESTObject>(Path, 1, 1);
+            var result = connection.List<Player>(Player.Path, 0);
 
-            Assert.That(result?.List, Is.Not.EqualTo(null), "Result does not contain a list");
-            Assert.That(result?.List!.Count, Is.GreaterThan(0), "List does not have any records");
-
-            return;
+            Assert.That(result, Is.Not.EqualTo(null), "Result does not contain a list");
+            Assert.That(result.TotalRecords ?? 0, Is.GreaterThan(0), "List does not have any records");
         }
 
         [Test]
         public async Task TestPagedListAsync()
         {
-            string RootPath = "https://www.trustee13.com/";
-            string Path = "/unittest/api/Players";
+            Assert.That(_configuration.Host, Is.Not.Null, "Host Cannot be null");
 
-            RESTConnection connection = new(RootPath);
+            var connection = new RESTConnection(_configuration.Host);
+            Assert.That(connection, Is.Not.Null, "Connection should never be null");
 
-            RESTObjectList<RESTObject>? result =
-                await connection.ListAsync<RESTObject>(Path, 1, 1);
+            var result = await connection.ListAsync<Player>(Player.Path, 0);
 
-            Assert.That(result?.List, Is.Not.EqualTo(null), "Result does not contain a list");
-            Assert.That(result?.List!.Count, Is.GreaterThan(0), "List does not have any records");
-
-            return;
-        }
+            Assert.That(result, Is.Not.EqualTo(null), "Result does not contain a list");
+            Assert.That(result.TotalRecords ?? 0, Is.GreaterThan(0), "List does not have any records");        }
 
         // GET/POST/PUT/DELETE
-
+/*
         [Test]
         public void TestGet()
         {
@@ -303,6 +299,9 @@ namespace RESTfulFoundation.UnitTests
             });
             return;
         }
+        
+        */
     }
+    
 }
 

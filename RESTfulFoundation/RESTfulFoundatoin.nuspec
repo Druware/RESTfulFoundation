@@ -22,7 +22,7 @@
         Initial migration from out of an internal library and into something
         usable by external developers and tools.  
     </releaseNotes>
-    <copyright>Copyright 2022, 2023 Druware Software Designs, All Rights Reserved</copyright>
+    <copyright>Copyright 2022 - 2024 Druware Software Designs, All Rights Reserved</copyright>
     <tags>.net6 webapi</tags>
   </metadata>
   <files>

@@ -1,500 +1,637 @@
-﻿using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.IO;
+﻿/* This file is part of the RESTfulFoundation Library
+ *
+ * The RESTfulFoundation Library is free software: you can redistribute it
+ * and/or modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation, either version 3 of the License,
+ * or (at your option) any later version.
+ *
+ * The RESTfulFoundation is distributed in the hope that it will be
+ * useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with
+ * the RESTfulFoundation Library. If not, see
+ * <https://www.gnu.org/licenses/>.
+ *
+ * Copyright 2019-2024 by:
+ *    Satori & Associates, Inc.
+ *    All Rights Reserved
+ ******************************************************************************/
+
+/* History
+ *   Modified By  How
+ *   -------- --- --------------------------------------------------------------
+ *   23/10/25 ars migrated from internal library code to something that we will
+ *                make widely available as the code matures
+ *   23/12/26 ars major code cleanup and restructure to provide better error
+ *                handling and reporting
+ ******************************************************************************/
+
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
-namespace RESTfulFoundation
+namespace RESTfulFoundation;
+
+
+public enum RESTConnectionRequestMethod
 {
+    Get,
+    Put,
+    Post,
+    Delete
+}
+
+/// <summary>
+/// the Connection object represents the root of all client/server transactions
+/// within the Client API. It encapsulates the internal methods in both
+/// synchronous and asynchronous models.
+/// </summary>
+public class RESTConnection
+{
+    private const string JsonDecodingError = "Unable to decode result";
+    
+    #region Properties 
+    
+    /// <summary>
+    /// set at creation, this is the root base URL of the API instance being
+    /// called throughout the lifecycle.  This cannot be changed as it would
+    /// invalidate the security and state management
+    /// </summary>
+    private readonly string _rootPath;
 
     /// <summary>
-    /// The 
+    /// the Info property will contain any additional information from the
+    /// last action on the connection object, and *should* be contextual to
+    /// that action
     /// </summary>
-    public class RESTConnection
+    public List<string>? Info { get; private set; }
+
+    /// <summary>
+    /// internal cookie storage
+    /// </summary>
+    private static readonly CookieContainer Cookies = new();
+
+    /// <summary>
+    /// internal reference to the underlying http handler
+    /// </summary>
+    private static readonly HttpClientHandler Handler = new()
+        { CookieContainer = Cookies };
+
+    /// <summary>
+    /// internal reference to the underlying http client connection
+    /// </summary>
+    private static readonly HttpClient HttpClient = new(Handler);
+
+    #endregion
+
+    /// <summary>
+    /// Constructor for the Connection.  Most applications should only use one
+    /// connection throughout their lifecycle.
+    /// </summary>
+    /// <param name="rootPath"></param>
+    public RESTConnection(string rootPath)
     {
-        public string RootPath { get; private set; }
-        public List<string>? Info { get; private set; }
+        _rootPath = rootPath;
+        Info = null;
 
-        private string agent;
-        private static readonly CookieContainer cookies = new();
-        private static readonly HttpClientHandler handler = new() { CookieContainer = cookies };
-        private static readonly HttpClient httpClient = new(handler);
+        HttpClient.DefaultRequestHeaders.Accept.Clear();
+        HttpClient.DefaultRequestHeaders.Add("User-Agent",
+            "RESTfulFoundation.Client");
+    }
 
-        /// <summary>
-        /// The only constructor on the Connection, a rootPath to a RESTful
-        /// interface needs to be provided and is required.  
-        /// </summary>
-        /// <param name="rootPath">The root to the RESTful service, used for all
-        ///     resource calls within the scope of the connection.</param>
-        /// <param name="userAgent">An optional name for the client that will
-        ///     be presented to the server as the User-Agent string in every
-        ///     request procesed.</param>
-        public RESTConnection(string rootPath, string? userAgent = null)
+    #region Internal Utility Methods
+    
+    /// Builds a URL from string parts, appended to the internal rootPath that
+    /// was established upon creation of the Connection object.
+    ///
+    /// - parameter parts: an array of the string parts to be appended to the
+    ///                    path
+    /// - returns: the resulting string, with properly formed elements using a
+    ///            "/" delimiter
+    ///
+    /// # Notes: #
+    /// * At this point, the code works, but will probably be identified to have
+    ///   issues once evaluated more fully.
+    ///
+    /// # Example #
+    /// ```
+    /// let conn = Connection(basePath: "http://localhost")
+    /// let url = conn.buildUrlString(parts: "api/controller/", "itemId")
+    /// // resulting url = "http://localhost/api/controller/itemId"
+    /// print(url)
+    /// ```
+    public static string BuildUrlString(string? queryString = null, params string[] parts)
+    {
+        var result = "";
+        foreach (var part in parts)
         {
-            RootPath = rootPath;
-            Info = null;
-            agent = (userAgent != null) ? userAgent : "RESTfulFoundation.Client";
+            if (part == "") continue;
+            result += part.StartsWith("/") ? part.Substring(1) : part;
+            result += result.EndsWith("/") ? "" : "/";
 
-            httpClient.DefaultRequestHeaders.Accept.Clear();
-            httpClient.DefaultRequestHeaders.Add("User-Agent", agent);
         }
+        result += result.EndsWith("/") ? "" : "/";
 
-        /// <summary>
-        /// Takes that passed in string paramters and uses them to build a URL
-        /// string
-        /// </summary>
-        /// <param name="parts"></param>
-        /// <returns></returns>
-        public string BuildUrlString(params string[] parts)
+        if (queryString != "")
+            result += $"?{queryString}";
+        
+        return result;
+    }
+
+    private void SetInfo(params string[] info)
+    {
+        // if the Info is currently blank, create it
+        Info ??= new List<string>();
+        foreach (var item in info)
+            Info?.Add(item);
+    }
+
+    private void ResetInfo() => Info = null;
+
+    private async Task<Stream?> DoRequest(string url, string? body = null, RESTConnectionRequestMethod method = RESTConnectionRequestMethod.Get)
+    {
+        ResetInfo();
+        
+        try
         {
-            string result = RootPath + (RootPath.EndsWith("/") ? "" : "/");
+            ByteArrayContent? byteContent = null;
 
-            foreach (string s in parts)
+            if (body != null)
             {
-                result += (s.StartsWith("/") ? s.Substring(1) : s);
-                result += (result.EndsWith("/") ? "" : "/");
+                var buffer = System.Text.Encoding.UTF8.GetBytes(body);
+                byteContent = new ByteArrayContent(buffer);
+                byteContent.Headers.ContentType =
+                    new MediaTypeHeaderValue("application/json");
             }
 
-            return result;
-        }
-
-        /// <summary>
-        /// The List method is essentially a 'get' request with no parameters
-        /// that expects the service to rerturn an array of objects that can be
-        /// used to navigate into the tree.
-        ///
-        /// NOTE:
-        ///     If the call fails, it will return null, and populate the Info
-        ///     property that will list any and all conditions that failed in
-        ///     processing.
-        /// </summary>
-        /// <typeparam name="T">A scoped result that is derived from the RESTObject
-        ///     class</typeparam>
-        /// <param name="path">the portion of the URL that follows the RootPath
-        ///     on the connection</param>
-        /// <param name="page"></param>
-        /// <param name="perPage"></param>
-        /// <returns></returns>
-        public T[]? List<T>(string path)
-            where T : RESTObject
-        {
-            var task = Task.Run(async () => await ListAsync<T>(path));
-            return task.Result;
-        }
-
-        /// <summary>
-        /// The List method is essentially a 'get' request with no parameters
-        /// that expects the service to rerturn an array of objects that can be
-        /// used to navigate into the tree.
-        ///
-        /// NOTE:
-        ///     If the call fails, it will return null, and populate the Info
-        ///     property that will list any and all conditions that failed in
-        ///     processing.
-        /// </summary>
-        /// <typeparam name="T">A scoped result that is derived from the RESTObject
-        ///     class</typeparam>
-        /// <param name="path">the portion of the URL that follows the RootPath
-        ///     on the connection</param>
-        /// <param name="page"></param>
-        /// <param name="perPage"></param>
-        /// <returns></returns>
-        public RESTObjectList<T>? List<T>(string path,
-            long? page = null, int? perPage = null)
-            where T : RESTObject
-        {
-            var task = Task.Run(async () => await ListAsync<T>(path, page, perPage));
-            return task.Result;
-        }
-
-        /// <summary>
-        /// The ListAsyns method is essentially a 'get' request with no required
-        /// parameters that expects the service to rerturn an array of objects
-        /// that can be used to navigate into the tree.
-        ///
-        /// NOTE:
-        ///     If the call fails, it will return null, and populate the Info
-        ///     property that will list any and all conditions that failed in
-        ///     processing.
-        /// </summary>
-        /// <typeparam name="T">A scoped result that is derived from the RESTObject
-        ///     class</typeparam>
-        /// <param name="path">the portion of the URL that follows the RootPath
-        ///     on the connection</param>
-        /// <param name="page"></param>
-        /// <param name="perPage"></param>
-        /// <returns></returns>
-        public async Task<T[]?> ListAsync<T>(
-            string path) where T : RESTObject
-        {
-            if (Info != null) Info = null;
-
-            try
+            HttpResponseMessage? response;
+            switch (method)
             {
-                string url = BuildUrlString(path);
-
-                var streamTask = httpClient.GetStreamAsync(url);
-
-                if (streamTask is null)
-                {
-                    Info = new();
-                    Info.Add("Unable to obtain a valid stream");
-                    return null;
-                }
-
-                StreamReader reader = new StreamReader(await streamTask);
-                string content = await reader.ReadToEndAsync();
-
-                // this is an array
-                List<T>? array = JsonSerializer.Deserialize<List<T>>(content);
-                if (array == null)
-                {
-                    Info = new();
-                    Info.Add("Unable to process a list from the result");
-                    return null;
-                }
-                return array?.ToArray();
-            }
-            catch (Exception error)
-            {
-                Info = new();
-                Info.Add(string.Format("An Exception was raised: {0}", error.Message));
-                return null;
-            }
-        }
-
-        /// <summary>
-        /// The ListAsyns method is essentially a 'get' request with no required
-        /// parameters that expects the service to rerturn an array of objects
-        /// that can be used to navigate into the tree.
-        ///
-        /// NOTE:
-        ///     If the call fails, it will return null, and populate the Info
-        ///     property that will list any and all conditions that failed in
-        ///     processing.
-        /// </summary>
-        /// <typeparam name="T">A scoped result that is derived from the RESTObject
-        ///     class</typeparam>
-        /// <param name="path">the portion of the URL that follows the RootPath
-        ///     on the connection</param>
-        /// <param name="page"></param>
-        /// <param name="perPage"></param>
-        /// <returns></returns>
-        public async Task<RESTObjectList<T>?> ListAsync<T>(
-            string path, long? page = null, int? perPage = null) where T : RESTObject
-        {
-            if (Info != null) Info = null;
-
-            try
-            {
-                string url = BuildUrlString(path);
-
-                var streamTask = httpClient.GetStreamAsync(url);
-
-                if (streamTask is null) {
-                    Info = new();
-                    Info.Add("Unable to obtain a valid stream");
-                    return null;
-                }
-
-                StreamReader reader = new StreamReader(await streamTask);
-                string content = await reader.ReadToEndAsync();
-
-                RESTObjectList<T>? result = null;
-
-                // is this an object, or an array?
-                if (content.StartsWith("["))
-                {
-                    // this is an array
-                    List<T>? array = JsonSerializer.Deserialize<List<T>>(content);
-                    if (array == null)
+                case RESTConnectionRequestMethod.Delete:
+                    response = await HttpClient.DeleteAsync(url);
+                    break;
+                case RESTConnectionRequestMethod.Get:
+                    response = await HttpClient.GetAsync(url);
+                    break;
+                case RESTConnectionRequestMethod.Put:
+                    if (byteContent == null)
                     {
-                        Info = new();
-                        Info.Add("Unable to process a list from the result");
+                        SetInfo("Body cannot be Null or Empty");
                         return null;
                     }
-                    result = new RESTObjectList<T>(array!);
-                    return result;
-                }
-
-                result = JsonSerializer.Deserialize<RESTObjectList<T>>(content);
-                // 
-
-                if (result == null)
-                {
-                    Info = new();
-                    Info.Add("No List Returned");
-                    return null;
-                }
-                return result!;
+                    response = await HttpClient.PutAsync(url, byteContent);
+                    break;
+                case RESTConnectionRequestMethod.Post:
+                    if (byteContent == null)
+                    {
+                        SetInfo("Body cannot be Null or Empty");
+                        return null;
+                    }
+                    response = await HttpClient.PostAsync(url, byteContent);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(method), method, null);
             }
-            catch (Exception error)
+
+            if (response.IsSuccessStatusCode) return await response.Content.ReadAsStreamAsync();
+            
+            // not successful, so handle the result.
+            SetInfo(await response.Content.ReadAsStringAsync());
+            response.Content.Dispose();
+            return null;
+
+        }
+        catch (Exception error)
+        {
+            SetInfo(error.Message);
+            if (error.InnerException != null) SetInfo($"Additional Information: {error.InnerException.Message}");
+        }
+        return null;
+    }
+
+    #endregion
+    
+    /// <summary>
+    /// implements a simple 'get' call to any api end point, usually wrapped by
+    /// the client objects whenever appropriate.
+    /// </summary>
+    /// <param name="path">path to the endpoint</param>
+    /// <param name="id">optionally, an id referencing a specific entity in the
+    ///     collection</param>
+    /// <param name="queryString"></param>
+    /// <param name="completion">optionally, a closure for on completion</param>
+    /// <param name="failure">optional closure for handling error or failure
+    ///     conditions</param>
+    /// <typeparam name="T">An RESTObject based type</typeparam>
+    /// <returns>An RESTObject based type</returns>
+    public async Task<T?> GetAsync<T>(
+        string path,
+        string? id = null,
+        string? queryString = null,
+        Action<T?>? completion = null,
+        Action<string?>? failure = null) where T : RESTObject?
+    {
+        var url = BuildUrlString(queryString, _rootPath, path, id ?? "");
+        try
+        {
+            var result = await JsonSerializer.DeserializeAsync<T?>(await DoRequest(url) ?? throw new InvalidOperationException());
+            
+            if (result == null)
             {
-                Info = new();
-                Info.Add(string.Format("An Exception was raised: {0}", error.Message));
+                failure?.Invoke(JsonDecodingError);
+                SetInfo(JsonDecodingError);
                 return null;
             }
+            
+            completion?.Invoke(result);
+            return result;
         }
-
-        /// <summary>
-        /// The Query method is internally a post to a /query/ path on the
-        /// api.  It takes a model of the request object with the values to
-        /// search set on it, and then returns a list of objects that match the
-        /// passed in criteria.  Wildcards should be supported in the passed in
-        /// criteria, however this is *server* dependant.
-        ///
-        /// NOTE:
-        ///     If the call fails, it will return null, and populate the Info
-        ///     property that will list any and all conditions that failed in
-        ///     processing.
-        /// </summary>
-        /// <typeparam name="T">A scoped result that is derived from the RESTObject
-        ///     class</typeparam>
-        /// <param name="path">the portion of the URL that follows the RootPath
-        ///     on the connection</param>
-        /// <param name="page"></param>
-        /// <param name="perPage"></param>
-        /// <returns></returns>
-        public RESTObjectList<T>? Query<T>(
-            string path,
-            T criteria,
-            long page = 0,
-            long perPage = 0) where T : RESTObject
+        catch (Exception error)
         {
-            var task = Task.Run(async () => await QueryAsync<T>(path, criteria, page, perPage));
-            return task.Result;
+            if (failure == null) return null;
+            SetInfo(error.Message);
+            if (error.InnerException != null) SetInfo($"Additional Information: {error.InnerException.Message}");
+            failure(error.Message);
         }
+        return null;
+    }
+    
+    /// <summary>
+    /// The foundational Get request.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="path"></param>
+    /// <param name="id"></param>
+    /// <returns></returns>
+    public T? Get<T>(
+        string path,
+        string? id = null) where T : RESTObject?
+    {
+        var task = Task.Run(async () => await GetAsync<T>(path, id));
+        return task.Result;
+    }
 
-        /// <summary>
-        /// The QueryAsync method is internally a post to a /query/ path on the
-        /// api.  It takes a model of the request object with the values to
-        /// search set on it, and then returns a list of objects that match the
-        /// passed in criteria.  Wildcards should be supported in the passed in
-        /// criteria, however this is *server* dependant.
-        ///
-        /// NOTE:
-        ///     If the call fails, it will return null, and populate the Info
-        ///     property that will list any and all conditions that failed in
-        ///     processing.
-        /// </summary>
-        /// <typeparam name="T">A scoped result that is derived from the RESTObject
-        ///     class</typeparam>
-        /// <param name="path">the portion of the URL that follows the RootPath
-        ///     on the connection</param>
-        /// <param name="page"></param>
-        /// <param name="perPage"></param>
-        /// <returns></returns>
-        public async Task<RESTObjectList<T>?> QueryAsync<T>(
-            string path,
-            T criteria,
-            long page = 0,
-            long perPage = 0) where T : RESTObject
+
+    /// <summary>
+    /// the list command calls a 'get' on the root, with no id, and no default
+    /// parameters in order to get a list ( per the normal REST conventions )
+    /// on an endpoint.
+    /// 
+    /// There are two variations, one returns a pageable 'RESTObjectList',
+    /// while the other returns an array of object
+    /// </summary>
+    /// <param name="path">path to the endpoint</param>
+    /// <param name="perPage">number of items per page</param>
+    /// <param name="queryString">defines any queryString params needed</param>
+    /// <param name="completion">optionally, a closure for on completion</param>
+    /// <param name="failure">optional closure for handling error or failure
+    ///     conditions</param>
+    /// <param name="page">Zero based page number in the result set</param>
+    /// <typeparam name="T">An RESTObject based type</typeparam>
+    /// <returns>An RESTObject based type</returns>
+    public async Task<RESTObjectList<T>> ListAsync<T>(
+        string path,
+        int page, 
+        int perPage = 100,
+        string queryString = "",
+        Action<RESTObjectList<T>?>? completion = null,
+        Action<string?>? failure = null) where T : RESTObject
+    {
+        var query = queryString;
+        query += query.Length == 0 ? "" : "&";
+        query += $"page={page}&perPage={perPage}";
+        
+        var url = BuildUrlString(query, _rootPath, path);
+        try
         {
-            try
+            var result = await JsonSerializer.DeserializeAsync<RESTObjectList<T>?>(await DoRequest(url) ?? 
+                throw new InvalidOperationException());
+            if (result == null)
+                failure?.Invoke("No Object Returned");
+            else
+                completion?.Invoke(result);
+            return result ?? new RESTObjectList<T>();
+        }
+        catch (Exception error)
+        {
+            SetInfo(error.Message);
+            if (error.InnerException != null) SetInfo($"Additional Information: {error.InnerException.Message}");
+            failure?.Invoke(error.Message);
+        }
+        return new RESTObjectList<T>();
+    }
+    
+    public RESTObjectList<T> List<T>(string path, int page = 0, int perPage = 100, string queryString = "")
+        where T : RESTObject
+    {
+        var task = Task.Run(async () => await ListAsync<T>(path, page, perPage, queryString));
+        return task.Result;
+    }
+    
+    /// <summary>
+    /// the array command calls a 'get' on the root, with no id, and no default
+    /// parameters in order to get a list ( per the normal REST conventions )
+    /// on an endpoint.
+    /// 
+    /// There are two variations, one returns a pageable 'RESTObjectList',
+    /// while the other returns an array of object
+    /// </summary>
+    /// <param name="path"></param>
+    /// <param name="queryString"></param>
+    /// <param name="completion"></param>
+    /// <param name="failure"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns>an array of T or an empty array on failure</returns>
+    public async Task<T[]?> ListAsync<T>(
+        string path,
+        string queryString = "",
+        Action<T[]?>? completion = null,
+        Action<string?>? failure = null) where T : RESTObject
+    {
+        var url = BuildUrlString(queryString, _rootPath, path);
+        try
+        {
+            var result = await JsonSerializer.DeserializeAsync<T[]?>(await DoRequest(url) ?? 
+                                                                     throw new InvalidOperationException());
+            if (result == null)
+                failure?.Invoke("No Object Returned");
+            else
+                completion?.Invoke(result);
+            return result ?? Array.Empty<T>();
+        }
+        catch (Exception error)
+        {
+            SetInfo(error.Message);
+            if (error.InnerException != null) 
+                    SetInfo($"Additional Information: {error.InnerException.Message}");
+            failure?.Invoke(error.Message);
+        }
+        return Array.Empty<T>();
+    }
+
+    /// <summary>
+    /// using a posted model object as the search criteria, run the query
+    /// against the server objects and return a pageable result of the
+    /// resulting list.
+    /// </summary>
+    /// <param name="path"></param>
+    /// <param name="queryString"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public T[]? List<T>(string path, string queryString = "") where T : RESTObject
+    {
+        var task = Task.Run(async () => await ListAsync<T>(path, queryString));
+        return task.Result;
+    }
+    
+    /// <summary>
+    /// using a posted model object as the search criteria, run the query
+    /// against the server objects and return a pageable result of the
+    /// resulting list.
+    /// </summary>
+    /// <param name="path"></param>
+    /// <param name="criteria"></param>
+    /// <param name="page"></param>
+    /// <param name="perPage"></param>
+    /// <param name="completion"></param>
+    /// <param name="failure"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public async Task<RESTObjectList<T>?> QueryAsync<T>(
+        string path,
+        T criteria,
+        long page = 0,
+        long perPage = 0,
+        Action<RESTObjectList<T>?>? completion = null,
+        Action<string?>? failure = null) where T : RESTObject
+    {
+        try
+        {
+            var url = BuildUrlString($"?page={page}&perPage={perPage}", _rootPath, path, (path.EndsWith("/") ? "query/" : "/query/"));
+            var result = await JsonSerializer.DeserializeAsync<RESTObjectList<T>?>(
+                await DoRequest(url, JsonSerializer.Serialize(criteria)) ?? throw new InvalidOperationException());
+            if (result == null)
             {
-                string url = BuildUrlString(path, "/query/");
-
-                // serialize the model to send in the body
-                string modelData = JsonSerializer.Serialize(criteria);
-
-                var buffer = System.Text.Encoding.UTF8.GetBytes(modelData);
-                var byteContent = new ByteArrayContent(buffer);
-                byteContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-
-                HttpResponseMessage response = await httpClient.PostAsync(url, byteContent);
-                response.EnsureSuccessStatusCode();
-                RESTObjectList<T>? result = await JsonSerializer.DeserializeAsync<RESTObjectList<T>>(await response.Content.ReadAsStreamAsync());
-                if (result == null)
-                {
-                    Info = new();
-                    Info.Add("No List Returned");
-                    return null;
-                }
-
-                return result!;
+                failure?.Invoke("No Object Returned");
+                return new RESTObjectList<T>();
             }
-            catch (Exception error)
+
+            completion?.Invoke(result);
+            return result;
+        }
+        catch (Exception error)
+        {
+            if (failure == null) return null;
+            SetInfo(error.Message);
+            if (error.InnerException != null) SetInfo($"Additional Information: {error.InnerException.Message}");
+            failure(error.Message);
+        }
+
+        return null;
+    }
+    
+    /// <summary>
+    /// using a posted model object as the search criteria, run the query
+    /// against the server objects and return a pageable result of the
+    /// resulting list.
+    /// </summary>
+    /// <param name="path"></param>
+    /// <param name="criteria"></param>
+    /// <param name="page"></param>
+    /// <param name="perPage"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public RESTObjectList<T>? Query<T>(
+        string path,
+        T criteria,
+        long page = 0,
+        long perPage = 0) where T : RESTObject
+    {
+        var task = Task.Run(async () => await QueryAsync(path, criteria, page, perPage));
+        return task.Result;
+    }
+
+    /// <summary>
+    /// Post will push a new record of the type in the model to the server, and assuming a successful push return the
+    /// newly posted record back to the client
+    /// </summary>
+    /// <param name="path"></param>
+    /// <param name="model"></param>
+    /// <param name="completion"></param>
+    /// <param name="failure"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <typeparam name="TU"></typeparam>
+    /// <returns></returns>
+    public async Task<T?> PostAsync<T, TU>(
+        string path,
+        TU model,
+        Action<T?>? completion = null,
+        Action<string?>? failure = null)
+        where T : RESTObject? where TU : RESTObject?
+    {
+        try
+        {
+            var url = BuildUrlString(null, _rootPath, path);
+            var result = await JsonSerializer.DeserializeAsync<T?>(
+                await DoRequest(url, JsonSerializer.Serialize(model), RESTConnectionRequestMethod.Post) 
+                    ?? throw new InvalidOperationException());
+            if (result == null)
             {
-                Info = new();
-                Info.Add(string.Format("An Exception was raised: {0}", error.Message));
+                failure?.Invoke("No Object Returned");
                 return null;
             }
+
+            completion?.Invoke(result);
+            return result;
+        }
+        catch (Exception error)
+        {
+            if (failure == null) return null;
+            SetInfo(error.Message);
+            if (error.InnerException != null) SetInfo($"Additional Information: {error.InnerException.Message}");
+            failure(error.Message);
         }
 
-        /// <summary>
-        /// The foundational Get request.
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="path"></param>
-        /// <param name="id"></param>
-        /// <returns></returns>
-        public T? Get<T>(
-            string path,
-            string? id = null) where T : RESTObject?
+        return null;
+    }
+    
+    /// <summary>
+    /// Post will push a new record of the type in the model to the server, and assuming a successful push return the
+    /// newly posted record back to the client
+    /// </summary>
+    /// <param name="path"></param>
+    /// <param name="model"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <typeparam name="TU"></typeparam>
+    /// <returns></returns>
+    public T? Post<T, TU>(
+        string path,
+        TU model) where T : RESTObject? where TU : RESTObject?
+    {
+        var task = Task.Run(async () => await PostAsync<T, TU>(path, model));
+        return task.Result;
+    }
+
+    /// <summary>
+    /// Put will push an update record of the type in the model to the server, to the Id reflected in the Id record.
+    /// Assuming a successful push return the newly updated record back to the client
+    /// </summary>
+    /// <param name="path"></param>
+    /// <param name="id"></param>
+    /// <param name="model"></param>
+    /// <param name="completion"></param>
+    /// <param name="failure"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <typeparam name="TU"></typeparam>
+    /// <returns></returns>
+    public async Task<T?> PutAsync<T, TU>(
+        string path,
+        string id,
+        TU model,
+        Action<T?>? completion = null,
+        Action<string?>? failure = null)
+        where T : RESTObject? where TU : RESTObject?
+    {
+        try
         {
-            var task = Task.Run(async () => await GetAsync<T>(path, id));
-            return task.Result;
-        }
-
-        /// <summary>
-        /// The foundational GetAsync request.
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="path"></param>
-        /// <param name="id"></param>
-        /// <returns></returns>
-        public async Task<T?> GetAsync<T>(
-            string path,
-            string? id = null) where T : RESTObject?
-        {
-            if (Info != null) Info = null;
-
-            try
+            var url = BuildUrlString(null, _rootPath, path, (path.EndsWith("/") ? "" : "/") + id);
+            var result = await JsonSerializer.DeserializeAsync<T?>(
+                await DoRequest(url, JsonSerializer.Serialize(model), RESTConnectionRequestMethod.Put) 
+                ?? throw new InvalidOperationException());
+            if (result == null)
             {
-                string url = BuildUrlString(path, id ?? "");
-
-                var streamTask = httpClient.GetStreamAsync(url);
-
-                if (streamTask is null)
-                {
-                    Info = new();
-                    Info.Add("Unable to obtain a valid stream");
-                    return null;
-                }
-
-                T? result = await JsonSerializer.DeserializeAsync<T?>(await streamTask);
-                if (result == null)
-                {
-                    Info = new();
-                    Info.Add("No Object Returned");
-                    return null;
-                }
-
-                return result;
-            }
-            catch (Exception error)
-            {
-                Info = new();
-                Info.Add(string.Format("An Exception was raised: {0}", error.Message));
+                failure?.Invoke("No Object Returned");
                 return null;
             }
-        }
+            completion?.Invoke(result);
+            return result;
 
-        public T? Post<T>(
-            string path,
-            T model) where T : RESTObject? 
+        }
+        catch (Exception error)
         {
-            var task = Task.Run(async () => await PostAsync<T>(path, model));
-            return task.Result;
+            if (failure == null) return null;
+            SetInfo(error.Message);
+            if (error.InnerException != null) SetInfo($"Additional Information: {error.InnerException.Message}");
+            failure(error.Message);
         }
 
-        public async Task<T?> PostAsync<T>(
-            string path,
-            T model) where T : RESTObject?
+        return null;
+    }
+
+    /// <summary>
+    /// Put will push an update record of the type in the model to the server, to the Id reflected in the Id record.
+    /// Assuming a successful push return the newly updated record back to the client
+    /// </summary>
+    /// <param name="path"></param>
+    /// <param name="id"></param>
+    /// <param name="model"></param>
+    /// <typeparam name="T"></typeparam>
+    /// <typeparam name="TU"></typeparam>
+    /// <returns></returns>
+    public T? Put<T, TU>(
+        string path,
+        string id,
+        TU model) where T : RESTObject? where TU : RESTObject?
+    {
+        var task = Task.Run(async () => await PutAsync<T, TU>(path, id, model));
+        return task.Result;
+    }
+    
+    /// <summary>
+    /// Delete will request the removal of the record identified by the passed in Id, and will return a true or false
+    /// reflecting the success or failure of the request
+    /// </summary>
+    /// <param name="path"></param>
+    /// <param name="id"></param>
+    /// <param name="completion"></param>
+    /// <param name="failure"></param>
+    /// <returns></returns>
+    public async Task<bool> DeleteAsync(
+        string path,
+        string id,
+        Action<bool>? completion = null,
+        Action<string?>? failure = null)
+    {
+        try
         {
-            try
+            var url = BuildUrlString(null, _rootPath, path,
+                (path.EndsWith("/") ? "" : "/") + id);
+            var response = await HttpClient.DeleteAsync(url);
+            if (response.StatusCode == HttpStatusCode.OK)
             {
-                string url = BuildUrlString(path);
-
-                // serialize the model to send in the body
-                string modelData = JsonSerializer.Serialize(model);
-
-                var buffer = System.Text.Encoding.UTF8.GetBytes(modelData);
-                var byteContent = new ByteArrayContent(buffer);
-                byteContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-
-                HttpResponseMessage response = await httpClient.PostAsync(url, byteContent);
-                response.EnsureSuccessStatusCode();
-                T? result = await JsonSerializer.DeserializeAsync<T?>(await response.Content.ReadAsStreamAsync());
-                if (result == null)
-                {
-                    Info = new();
-                    Info.Add("No Object Returned");
-                    return null;
-                }
-
-                return result;
+                completion?.Invoke(true);
+                return true;
             }
-            catch (Exception error)
-            {
-                Info = new();
-                Info.Add(string.Format("An Exception was raised: {0}", error.Message));
-                return null;
-            }
+            SetInfo(response.StatusCode.ToString());
+            failure?.Invoke("Request Returned an error: " + response.StatusCode);
+            return false;
         }
-        public T? Put<T>(
-            string path,
-            string id,
-            T model) where T : RESTObject? 
+        
+        catch (Exception error)
         {
-            var task = Task.Run(async () => await PutAsync<T>(path, id, model));
-            return task.Result;
+            if (failure == null) return false;
+            SetInfo(error.Message);
+            if (error.InnerException != null) SetInfo($"Additional Information: {error.InnerException.Message}");
+            failure(error.Message);
         }
 
-        public async Task<T?> PutAsync<T>(
-            string path,
-            string id,
-            T model) where T : RESTObject?
-        {
-            try
-            {
-                string url = BuildUrlString(path, id ?? "");
-
-                // serialize the model to send in the body
-                string modelData = JsonSerializer.Serialize(model);
-
-                var buffer = System.Text.Encoding.UTF8.GetBytes(modelData);
-                var byteContent = new ByteArrayContent(buffer);
-                byteContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-
-                HttpResponseMessage response = await httpClient.PutAsync(url, byteContent);
-                response.EnsureSuccessStatusCode();
-                T? result = await JsonSerializer.DeserializeAsync<T?>(await response.Content.ReadAsStreamAsync());
-                if (result == null)
-                {
-                    Info = new();
-                    Info.Add("No Object Returned");
-                    return null;
-                }
-
-                return result;
-            }
-            catch (Exception error)
-            {
-                Info = new();
-                Info.Add(string.Format("An Exception was raised: {0}", error.Message));
-                return null;
-            }
-        }
-
-        public Boolean Delete(
-            string path,
-            string id)
-        {
-            var task = Task.Run(async () => await DeleteAsync(path, id));
-            return task.Result;
-        }
-
-        public async Task<Boolean> DeleteAsync(
-            string path,
-            string id)
-        {
-            try
-            {
-                string url = BuildUrlString(path, id ?? "");
-                HttpResponseMessage response = await httpClient.DeleteAsync(url);
-                return (response.StatusCode == HttpStatusCode.OK);
-            }
-            catch (Exception error)
-            {
-                Info = new();
-                Info.Add(string.Format("An Exception was raised: {0}", error.Message));
-                return false;
-            }
-        }
+        return false;
+    }
+    
+    /// <summary>
+    /// Delete will request the removal of the record identified by the passed in Id, and will return a true or false
+    /// reflecting the success or failure of the request
+    /// </summary>
+    /// <param name="path"></param>
+    /// <param name="id"></param>
+    /// <returns>true or false reflecting the success or failure</returns>
+    public bool Delete(
+        string path,
+        string id)
+    {
+        var task = Task.Run(async () => await DeleteAsync(path, id));
+        return task.Result;
     }
 }
