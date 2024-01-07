@@ -2,7 +2,7 @@
 <package >
   <metadata>
     <id>$id$</id>
-    <version>0.0.5</version>
+    <version>0.0.7</version>
     <title>RESTfulFoundation</title>
     <authors>dru@druware.com</authors>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
@@ -19,8 +19,7 @@
         foundation, to enable rapid development of RESTful client applications.        
     </description>
     <releaseNotes>
-        Initial migration from out of an internal library and into something
-        usable by external developers and tools.  
+        Working on nailing down details to move this to a 1.0 release level. 
     </releaseNotes>
     <copyright>Copyright 2022 - 2024 Druware Software Designs, All Rights Reserved</copyright>
     <tags>.net6 webapi</tags>
