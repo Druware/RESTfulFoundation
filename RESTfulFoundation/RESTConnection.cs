@@ -338,7 +338,7 @@ public class RESTConnection
     /// There are two variations, one returns a pageable 'RESTObjectList',
     /// while the other returns an array of object
     /// </summary>
-    /// <param name="path"></param>
+    /// <param name="path"></param> 
     /// <param name="queryString"></param>
     /// <param name="completion"></param>
     /// <param name="failure"></param>
@@ -474,6 +474,15 @@ public class RESTConnection
         try
         {
             var url = BuildUrlString(null, _rootPath, path);
+            // Use for debugging when you think the JSON might be malformed but
+            // the error handler is not catching it.
+            /*
+            var stream = await DoRequest(url, JsonSerializer.Serialize(model),
+                RESTConnectionRequestMethod.Post);
+            var reader = new StreamReader(stream!);
+            var json = await reader.ReadToEndAsync();
+            var result = JsonSerializer.Deserialize<T?>(json);
+            */
             var result = await JsonSerializer.DeserializeAsync<T?>(
                 await DoRequest(url, JsonSerializer.Serialize(model), RESTConnectionRequestMethod.Post) 
                     ?? throw new InvalidOperationException());
