@@ -411,7 +411,7 @@ public class RESTConnection
         {
             var url = BuildUrlString($"page={page}&perPage={perPage}", _rootPath, path, (path.EndsWith("/") ? "query/" : "/query/"));
             var result = await JsonSerializer.DeserializeAsync<RESTObjectList<T>?>(
-                await DoRequest(url, JsonSerializer.Serialize(criteria)) ?? throw new InvalidOperationException());
+                await DoRequest(url, JsonSerializer.Serialize(criteria), RESTConnectionRequestMethod.Post) ?? throw new InvalidOperationException());
             if (result == null)
             {
                 failure?.Invoke("No Object Returned");
