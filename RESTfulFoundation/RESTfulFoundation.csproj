@@ -1,10 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <ReleaseVersion>0.0.5</ReleaseVersion>
+    <AssemblyVersion>0.1.0</AssemblyVersion>
     <Description>A set of foundation classes for quickly and easily building RESTful
         client applications and tools. Intended to be used primarily as base
         classes that provide a bridge from local logic to the server storage
@@ -12,19 +11,14 @@
         scaffolding tool that quickly builds the interfaces based upon this
         foundation, to enable rapid development of RESTful client applications.</Description>
     <Configurations>Release;Debug</Configurations>
+    <AssemblyVersion>0.1.0</AssemblyVersion>
+    <FileVersion>0.1.0</FileVersion>
+    <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
 
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
     <WarningLevel>4</WarningLevel>
-    <CustomCommands>
-      <CustomCommands>
-        <Command>
-          <type>AfterBuild</type>
-          <command>nuget pack -OutputDirectory pub -Properties Configuration=Release</command>
-        </Command>
-      </CustomCommands>
-    </CustomCommands>
   </PropertyGroup>
 
   <PropertyGroup>

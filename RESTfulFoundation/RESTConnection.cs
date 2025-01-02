@@ -211,6 +211,41 @@ public class RESTConnection
         return null;
     }
 
+private async Task<Stream?> DoRequest(string url, MultipartFormDataContent content, RESTConnectionRequestMethod method = RESTConnectionRequestMethod.Get)
+    {
+        ResetInfo();
+        
+        try
+        {
+            HttpResponseMessage? response;
+            switch (method)
+            {
+                case RESTConnectionRequestMethod.Put:
+                    response = await HttpClient.PutAsync(url, content);
+                    break;
+                case RESTConnectionRequestMethod.Post:
+                    response = await HttpClient.PostAsync(url, content);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(method), method, null);
+            }
+
+            if (response.IsSuccessStatusCode) return await response.Content.ReadAsStreamAsync();
+            
+            // not successful, so handle the result.
+            SetInfo(await response.Content.ReadAsStringAsync());
+            response.Content.Dispose();
+            return null;
+
+        }
+        catch (Exception error)
+        {
+            SetInfo(error.Message);
+            if (error.InnerException != null) SetInfo($"Additional Information: {error.InnerException.Message}");
+        }
+        return null;
+    }
+
     #endregion
     
     /// <summary>
@@ -257,19 +292,78 @@ public class RESTConnection
         }
         return null;
     }
-    
+
     /// <summary>
     /// The foundational Get request.
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <param name="path"></param>
     /// <param name="id"></param>
+    /// <param name="queryString"></param>
     /// <returns></returns>
     public T? Get<T>(
         string path,
-        string? id = null) where T : RESTObject?
+        string? id = null, 
+        string? queryString = null) where T : RESTObject?
     {
-        var task = Task.Run(async () => await GetAsync<T>(path, id));
+        var task = Task.Run(async () => await GetAsync<T>(path, id, queryString));
+        return task.Result;
+    }
+    
+    /// <summary>
+    /// implements a simple 'get' call to any api end point, usually wrapped by
+    /// the client objects whenever appropriate.
+    /// </summary>
+    /// <param name="path">path to the endpoint</param>
+    /// <param name="id">optionally, an id referencing a specific entity in the
+    ///     collection</param>
+    /// <param name="queryString"></param>
+    /// <param name="completion">optionally, a closure for on completion</param>
+    /// <param name="failure">optional closure for handling error or failure
+    ///     conditions</param>
+    /// <typeparam name="T">An RESTObject based type</typeparam>
+    /// <returns>An RESTObject based type</returns>
+    public async Task<string?> GetAsync(
+        string path,
+        string? id = null,
+        string? queryString = null,
+        Action<string?>? completion = null,
+        Action<string?>? failure = null)
+    {
+        var url = BuildUrlString(queryString, _rootPath, path, id ?? "");
+        try
+        {
+            var result = await DoRequest(url) ?? throw new InvalidOperationException();
+            var sr = new StreamReader(result);
+            var value = await sr.ReadToEndAsync();
+            sr.Close();
+            completion?.Invoke(value);
+            return value;
+        }
+        catch (Exception error)
+        {
+            if (failure == null) return null;
+            SetInfo(error.Message);
+            if (error.InnerException != null) SetInfo($"Additional Information: {error.InnerException.Message}");
+            failure(error.Message);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The foundational Get request.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="path"></param>
+    /// <param name="id"></param>
+    /// <param name="queryString"></param>
+    /// <returns></returns>
+    public string? Get(
+        string path,
+        string? id = null, 
+        string? queryString = null)
+    {
+        var task = Task.Run(async () => await GetAsync(path, id, queryString));
         return task.Result;
     }
 
@@ -371,6 +465,33 @@ public class RESTConnection
         return Array.Empty<T>();
     }
 
+    public async Task<string[]?> ListAsync(
+        string path,
+        string queryString = "",
+        Action<string[]?>? completion = null,
+        Action<string?>? failure = null) 
+    {
+        var url = BuildUrlString(queryString, _rootPath, path);
+        try
+        {
+            var result = await JsonSerializer.DeserializeAsync<string[]?>(await DoRequest(url) ?? 
+                throw new InvalidOperationException());
+            if (result == null)
+                failure?.Invoke("No Object Returned");
+            else
+                completion?.Invoke(result);
+            return result ?? Array.Empty<string>();
+        }
+        catch (Exception error)
+        {
+            SetInfo(error.Message);
+            if (error.InnerException != null) 
+                SetInfo($"Additional Information: {error.InnerException.Message}");
+            failure?.Invoke(error.Message);
+        }
+        return Array.Empty<string>();
+    }
+    
     /// <summary>
     /// using a posted model object as the search criteria, run the query
     /// against the server objects and return a pageable result of the
@@ -383,6 +504,12 @@ public class RESTConnection
     public T[]? List<T>(string path, string queryString = "") where T : RESTObject
     {
         var task = Task.Run(async () => await ListAsync<T>(path, queryString));
+        return task.Result;
+    }
+    
+    public string[]? List(string path, string queryString = "")
+    {
+        var task = Task.Run(async () => await ListAsync(path, queryString));
         return task.Result;
     }
     
@@ -506,6 +633,37 @@ public class RESTConnection
         return null;
     }
     
+    public async Task<string?> PostAsync(
+        string path,
+        MultipartFormDataContent content,
+        Action<string?>? completion = null,
+        Action<string?>? failure = null,
+        string? queryString = null)
+    {
+        try
+        {
+            var url = BuildUrlString(queryString, _rootPath, path);
+
+            var result = 
+                await DoRequest(url, content, RESTConnectionRequestMethod.Post) 
+                ?? throw new InvalidOperationException();
+            var sr = new StreamReader(result);
+            var value = await sr.ReadToEndAsync();
+            sr.Close();
+            completion?.Invoke(value);
+            return value;
+        }
+        catch (Exception error)
+        {
+            if (failure == null) return null;
+            SetInfo(error.Message);
+            if (error.InnerException != null) SetInfo($"Additional Information: {error.InnerException.Message}");
+            failure(error.Message);
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Post will push a new record of the type in the model to the server, and assuming a successful push return the
     /// newly posted record back to the client
@@ -523,6 +681,15 @@ public class RESTConnection
         return task.Result;
     }
 
+    public string? Post(
+        string path,
+        MultipartFormDataContent content,
+        string? queryString = null) 
+    {
+        var task = Task.Run(async () => await PostAsync(path, content, queryString: queryString));
+        return task.Result;
+    }
+    
     /// <summary>
     /// Put will push an update record of the type in the model to the server, to the Id reflected in the Id record.
     /// Assuming a successful push return the newly updated record back to the client
@@ -641,6 +808,57 @@ public class RESTConnection
         string id)
     {
         var task = Task.Run(async () => await DeleteAsync(path, id));
+        return task.Result;
+    }
+    
+    /// <summary>
+    /// implements a simple 'get' call to any api end point, usually wrapped by
+    /// the client objects whenever appropriate.
+    /// </summary>
+    /// <param name="path">path to the endpoint</param>
+    /// <param name="id">optionally, an id referencing a specific entity in the
+    ///     collection</param>
+    /// <param name="queryString"></param>
+    /// <param name="completion">optionally, a closure for on completion</param>
+    /// <param name="failure">optional closure for handling error or failure
+    ///     conditions</param>
+    /// <typeparam name="T">An RESTObject based type</typeparam>
+    /// <returns>An RESTObject based type</returns>
+    public async Task<Stream?> FileAsync(
+        string path,
+        string? queryString = null,
+        Action<Stream?>? completion = null,
+        Action<string?>? failure = null)
+    {
+        var url = BuildUrlString(queryString, _rootPath, path, "");
+        try
+        {
+            var resultStream = await DoRequest(url) ?? throw new InvalidOperationException();
+            completion?.Invoke(resultStream);
+            return resultStream;
+        }
+        catch (Exception error)
+        {
+            if (failure == null) return null;
+            SetInfo(error.Message);
+            if (error.InnerException != null) SetInfo($"Additional Information: {error.InnerException.Message}");
+            failure(error.Message);
+        }
+        return null;
+    }
+    
+    /// <summary>
+    /// The foundational Get request.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="path"></param>
+    /// <param name="id"></param>
+    /// <returns></returns>
+    public Stream? File(
+        string path,
+        string? queryString = null) 
+    {
+        var task = Task.Run(async () => await FileAsync(path, queryString));
         return task.Result;
     }
 }
