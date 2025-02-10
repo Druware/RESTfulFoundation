@@ -2,7 +2,7 @@
 <package >
   <metadata>
     <id>$id$</id>
-    <version>0.0.12</version>
+    <version>0.0.13</version>
     <title>RESTfulFoundation</title>
     <authors>dru@druware.com</authors>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
@@ -19,7 +19,8 @@
         foundation, to enable rapid development of RESTful client applications.        
     </description>
     <releaseNotes>
-        Working on nailing down details to move this to a 1.0 release level. 
+        Added queryString to sync .Get on the Connection
+        Added a Connection to all RESTObjects to enable a more streamlined use
     </releaseNotes>
     <copyright>Copyright 2022 - 2024 Druware Software Designs, All Rights Reserved</copyright>
     <tags>.net6 webapi</tags>

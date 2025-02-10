@@ -22,18 +22,20 @@
 /* History
  *   Modified By  How
  *   -------- --- --------------------------------------------------------------
- *   23/10/25 ars migrated from internal library code to something that we will
- *                make widely available as the code matures
+ *   25/02/09 ars added querySTring to synchronous .get
+ *                added RESTConnection / Connection propert to RESTObject base
  *   23/12/26 ars major code cleanup and restructure to provide better error
  *                handling and reporting
+ *   23/10/25 ars migrated from internal library code to something that we will
+ *                make widely available as the code matures
  ******************************************************************************/
 
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+// ReSharper disable InconsistentNaming
 
 namespace RESTfulFoundation;
-
 
 public enum RESTConnectionRequestMethod
 {
@@ -143,7 +145,7 @@ public class RESTConnection
     private void SetInfo(params string[] info)
     {
         // if the Info is currently blank, create it
-        Info ??= new List<string>();
+        Info ??= [];
         foreach (var item in info)
             Info?.Add(item);
     }
@@ -211,7 +213,7 @@ public class RESTConnection
         return null;
     }
 
-private async Task<Stream?> DoRequest(string url, MultipartFormDataContent content, RESTConnectionRequestMethod method = RESTConnectionRequestMethod.Get)
+    private async Task<Stream?> DoRequest(string url, MultipartFormDataContent content, RESTConnectionRequestMethod method = RESTConnectionRequestMethod.Get)
     {
         ResetInfo();
         
@@ -280,6 +282,8 @@ private async Task<Stream?> DoRequest(string url, MultipartFormDataContent conte
                 return null;
             }
             
+            result.Connection = this;
+            
             completion?.Invoke(result);
             return result;
         }
@@ -321,8 +325,8 @@ private async Task<Stream?> DoRequest(string url, MultipartFormDataContent conte
     /// <param name="completion">optionally, a closure for on completion</param>
     /// <param name="failure">optional closure for handling error or failure
     ///     conditions</param>
-    /// <typeparam name="T">An RESTObject based type</typeparam>
-    /// <returns>An RESTObject based type</returns>
+    /// <returns>string representation of the result</returns>
+    // ReSharper disable once MemberCanBePrivate.Global
     public async Task<string?> GetAsync(
         string path,
         string? id = null,
@@ -353,7 +357,6 @@ private async Task<Stream?> DoRequest(string url, MultipartFormDataContent conte
     /// <summary>
     /// The foundational Get request.
     /// </summary>
-    /// <typeparam name="T"></typeparam>
     /// <param name="path"></param>
     /// <param name="id"></param>
     /// <param name="queryString"></param>
@@ -405,7 +408,13 @@ private async Task<Stream?> DoRequest(string url, MultipartFormDataContent conte
             if (result == null)
                 failure?.Invoke("No Object Returned");
             else
+            {
+                foreach (var i in result.List ?? [])
+                {
+                    i.Connection = this;
+                }
                 completion?.Invoke(result);
+            }
             return result ?? new RESTObjectList<T>();
         }
         catch (Exception error)
@@ -452,8 +461,12 @@ private async Task<Stream?> DoRequest(string url, MultipartFormDataContent conte
             if (result == null)
                 failure?.Invoke("No Object Returned");
             else
+            {
+                foreach (var i in result) { i.Connection = this; }
                 completion?.Invoke(result);
-            return result ?? Array.Empty<T>();
+            }
+
+            return result ?? [];
         }
         catch (Exception error)
         {
@@ -462,9 +475,10 @@ private async Task<Stream?> DoRequest(string url, MultipartFormDataContent conte
                     SetInfo($"Additional Information: {error.InnerException.Message}");
             failure?.Invoke(error.Message);
         }
-        return Array.Empty<T>();
+        return [];
     }
 
+    // ReSharper disable once MemberCanBePrivate.Global
     public async Task<string[]?> ListAsync(
         string path,
         string queryString = "",
@@ -480,7 +494,7 @@ private async Task<Stream?> DoRequest(string url, MultipartFormDataContent conte
                 failure?.Invoke("No Object Returned");
             else
                 completion?.Invoke(result);
-            return result ?? Array.Empty<string>();
+            return result ?? [];
         }
         catch (Exception error)
         {
@@ -489,7 +503,7 @@ private async Task<Stream?> DoRequest(string url, MultipartFormDataContent conte
                 SetInfo($"Additional Information: {error.InnerException.Message}");
             failure?.Invoke(error.Message);
         }
-        return Array.Empty<string>();
+        return [];
     }
     
     /// <summary>
@@ -526,6 +540,7 @@ private async Task<Stream?> DoRequest(string url, MultipartFormDataContent conte
     /// <param name="failure"></param>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
+    // ReSharper disable once MemberCanBePrivate.Global
     public async Task<RESTObjectList<T>?> QueryAsync<T>(
         string path,
         T criteria,
@@ -846,13 +861,14 @@ private async Task<Stream?> DoRequest(string url, MultipartFormDataContent conte
         }
         return null;
     }
-    
+
     /// <summary>
     /// The foundational Get request.
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <param name="path"></param>
     /// <param name="id"></param>
+    /// <param name="queryString"></param>
     /// <returns></returns>
     public Stream? File(
         string path,

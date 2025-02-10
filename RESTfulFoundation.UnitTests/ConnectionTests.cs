@@ -128,7 +128,7 @@ namespace RESTfulFoundation.UnitTests
             var connection = new RESTConnection(_configuration.Host);
             Assert.That(connection, Is.Not.Null, "Connection should never be null");
 
-            var result = connection.Get<Player>(Player.Path, 1.ToString());
+            var result = connection.Get<Player>(Player.Path, 1.ToString(), "");
             Assert.Multiple(() =>
             {
                 Assert.That(result?.PlayerId, Is.EqualTo(1), "Result Id does not match");

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Text.Json.Serialization;
+// ReSharper disable InconsistentNaming
 
 namespace RESTfulFoundation
 {
@@ -31,16 +32,16 @@ namespace RESTfulFoundation
         }
 
         [JsonPropertyName("totalRecords")]
-        public Int64? TotalRecords { get; set; }
+        public long? TotalRecords { get; set; }
 
         [JsonPropertyName("page")]
-        public Int64? Page { get; set; }
+        public long? Page { get; set; }
 
         [JsonPropertyName("perPage")]
-        public Int64? PerPage { get; set; }
+        public long? PerPage { get; set; }
 
         [JsonPropertyName("list")]
-        public List<T>? List { get; set; } // I think I am going to have to deal with this manually...
+        public List<T>? List { get; set; } 
     }
 }
 
