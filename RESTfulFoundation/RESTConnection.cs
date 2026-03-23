@@ -574,6 +574,39 @@ public class RESTConnection
         return null;
     }
     
+    public async Task<RESTObjectList<U>?> QueryAsync<T, U>(
+        string path,
+        T criteria,
+        long page = 0,
+        long perPage = 0,
+        Action<RESTObjectList<U>?>? completion = null,
+        Action<string?>? failure = null) where T : RESTObject where U : RESTObject
+    {
+        try
+        {
+            var url = BuildUrlString($"page={page}&perPage={perPage}", _rootPath, path, (path.EndsWith("/") ? "query/" : "/query/"));
+            var result = await JsonSerializer.DeserializeAsync<RESTObjectList<U>?>(
+                await DoRequest(url, JsonSerializer.Serialize(criteria), RESTConnectionRequestMethod.Post) ?? throw new InvalidOperationException());
+            if (result == null)
+            {
+                failure?.Invoke("No Object Returned");
+                return new RESTObjectList<U>();
+            }
+
+            completion?.Invoke(result);
+            return result;
+        }
+        catch (Exception error)
+        {
+            if (failure == null) return null;
+            SetInfo(error.Message);
+            if (error.InnerException != null) SetInfo($"Additional Information: {error.InnerException.Message}");
+            failure(error.Message);
+        }
+
+        return null;
+    }
+    
     /// <summary>
     /// using a posted model object as the search criteria, run the query
     /// against the server objects and return a pageable result of the
@@ -592,6 +625,16 @@ public class RESTConnection
         long perPage = 0) where T : RESTObject
     {
         var task = Task.Run(async () => await QueryAsync(path, criteria, page, perPage));
+        return task.Result;
+    }
+    
+    public RESTObjectList<U>? Query<T, U>(
+        string path,
+        T criteria,
+        long page = 0,
+        long perPage = 0) where T : RESTObject where U : RESTObject
+    {
+        var task = Task.Run(async () => await QueryAsync<T, U>(path, criteria, page, perPage));
         return task.Result;
     }
 
