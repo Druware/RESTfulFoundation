@@ -84,9 +84,38 @@ public class RESTConnection
     /// <summary>
     /// internal reference to the underlying http client connection
     /// </summary>
+    /// <remarks>
+    /// The Cookies, Handler and HttpClient above are deliberately static: one
+    /// set of them serves the whole process, so that a session established by
+    /// one connection is seen by the next. That sharing is also why
+    /// RESTConnection does not implement IDisposable - an instance does not own
+    /// these, and disposing them when one connection went out of scope would
+    /// break every other connection in the process. They live for the life of
+    /// the application, which is what a shared HttpClient is supposed to do.
+    /// </remarks>
     private static readonly HttpClient HttpClient = new(Handler);
 
     #endregion
+
+    /// <summary>
+    /// Sets up the shared HttpClient's default request headers.
+    /// </summary>
+    /// <remarks>
+    /// These headers belong to the static HttpClient, so they are set once for
+    /// the process rather than once per connection. DefaultRequestHeaders.Add
+    /// *appends* - doing this in the instance constructor added another
+    /// User-Agent value every time a RESTConnection was constructed, so the
+    /// second connection sent "RESTfulFoundation.Client
+    /// RESTfulFoundation.Client" and the header grew without bound for the life
+    /// of the process. A static constructor is guaranteed to run exactly once,
+    /// which is precisely the guarantee this needs.
+    /// </remarks>
+    static RESTConnection()
+    {
+        HttpClient.DefaultRequestHeaders.Accept.Clear();
+        HttpClient.DefaultRequestHeaders.Add("User-Agent",
+            "RESTfulFoundation.Client");
+    }
 
     /// <summary>
     /// Constructor for the Connection.  Most applications should only use one
@@ -97,10 +126,6 @@ public class RESTConnection
     {
         _rootPath = rootPath;
         Info = null;
-
-        HttpClient.DefaultRequestHeaders.Accept.Clear();
-        HttpClient.DefaultRequestHeaders.Add("User-Agent",
-            "RESTfulFoundation.Client");
     }
 
     #region Internal Utility Methods
