@@ -24,23 +24,9 @@
     </releaseNotes>
     <copyright>Copyright 2022 - 2024 Druware Software Designs, All Rights Reserved</copyright>
     <tags>.net6 webapi</tags>
-    <!-- The library has no package references; the empty group is what declares
-         the supported framework. "nuget pack <csproj>" used to derive this, and
-         the published 0.0.13/0.0.14 packages carry exactly this. Stating it
-         keeps the package identical and silences NU5128 under dotnet pack. -->
-    <dependencies>
-      <group targetFramework="net8.0" />
-    </dependencies>
   </metadata>
-  <!-- Paths use forward slashes and name the assembly explicitly so that this
-       nuspec is complete on its own. "nuget pack <csproj>" used to supply the
-       assembly implicitly, but that is a Windows/mono tool; the CI workflow
-       packs with "dotnet pack -p:NuspecFile=...", which takes the package
-       contents from this list and nothing else. Without the lib entry below the
-       published package contains the licence and readme and no code at all. -->
   <files>
-    <file src="LICENSE.txt" target="" />
-    <file src="README.md" target="" />
-    <file src="bin/Release/net8.0/RESTfulFoundation.dll" target="lib/net8.0" />
+    <file src=".\LICENSE.txt" target="" />
+    <file src=".\README.md" target="" />
   </files>
 </package>
